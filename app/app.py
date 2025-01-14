@@ -6,10 +6,13 @@ import os
 import json
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from breakout_strategy.data_fetcher import fetch_stock_data
-from breakout_strategy.strategy import backtest_breakout_strategy_with_short
+from breakout_strategy.strategy import (
+    backtest_breakout_strategy_with_capital_constraint,
+    backtest_breakout_strategy_without_constraint
+)
 
 # Streamlit app setup
-st.title("Breakout Strategy with Long and Short Trades")
+st.title("Breakout Strategy: Capital-Constrained vs. Unconstrained")
 
 # Input fields
 stocks = st.text_input("Enter stock tickers (comma-separated, e.g., AAPL, MSFT)", "AAPL, MSFT")
@@ -21,6 +24,9 @@ holding_period = st.number_input("Holding Period (days)", value=10, step=1)
 trailing_stop_loss = st.number_input("Trailing Stop Loss (%) (Set 0 to disable)", value=0.0)
 wait_period = st.number_input("Wait Period (days before entering trade)", value=0, step=1)
 
+# Toggle for Capital Constraint
+capital_constraint = st.checkbox("Enable Capital Constraint (Only 1 Trade at a Time)", value=True)
+
 # Analyze stocks
 if st.button("Analyze Strategy"):
     buy_signals = []
@@ -28,14 +34,29 @@ if st.button("Analyze Strategy"):
         stock = stock.strip()
         try:
             stock_data = fetch_stock_data(stock, start_date.strftime("%Y-%m-%d"), end_date.strftime("%Y-%m-%d"))
-            metrics = backtest_breakout_strategy_with_short(
-                stock_data,
-                volume_multiplier,
-                min_daily_return,
-                holding_period,
-                trailing_stop_loss,
-                wait_period
-            )
+
+            # Choose strategy based on the toggle
+            if capital_constraint:
+                st.write(f"Running strategy with capital constraint for {stock}...")
+                metrics = backtest_breakout_strategy_with_capital_constraint(
+                    stock_data,
+                    volume_multiplier,
+                    min_daily_return,
+                    holding_period,
+                    trailing_stop_loss,
+                    wait_period
+                )
+            else:
+                st.write(f"Running strategy without capital constraint for {stock}...")
+                metrics = backtest_breakout_strategy_without_constraint(
+                    stock_data,
+                    volume_multiplier,
+                    min_daily_return,
+                    holding_period,
+                    trailing_stop_loss,
+                    wait_period
+                )
+
             trades_df = pd.DataFrame(metrics['Trades'])
             st.write(f"Trades for {stock}:")
             st.dataframe(trades_df)
