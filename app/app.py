@@ -2,74 +2,65 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime, timedelta
 import sys
+import yfinance as yf
 import os
 import json
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from breakout_strategy.data_fetcher import fetch_stock_data
-from breakout_strategy.strategy import (
-    backtest_breakout_strategy_with_capital_constraint,
-    backtest_breakout_strategy_without_constraint
-)
+from breakout_strategy.strategy import backtest_breakout_strategy
 
 # Streamlit app setup
-st.title("Breakout Strategy: Capital-Constrained vs. Unconstrained")
+st.title("Stock Breakout Strategy")
 
-# Input fields
-stocks = st.text_input("Enter stock tickers (comma-separated, e.g., AAPL, MSFT)", "AAPL, MSFT")
-start_date = st.date_input("Start Date", value=datetime.now() - timedelta(days=1825))  # Default 5 years back
-end_date = st.date_input("End Date", value=datetime.now())
-volume_multiplier = st.number_input("Volume Multiplier (e.g., 2 for 200%)", value=2.0)
-min_daily_return = st.number_input("Minimum Daily Return (e.g., 0.02 for 2%)", value=0.02)
-holding_period = st.number_input("Holding Period (days)", value=10, step=1)
-trailing_stop_loss = st.number_input("Trailing Stop Loss (%) (Set 0 to disable)", value=0.0)
-wait_period = st.number_input("Wait Period (days before entering trade)", value=0, step=1)
+ticker = st.text_input("Enter stock ticker:", value="AAPL")
+start_date = st.date_input("Start Date", value=pd.to_datetime("2023-01-01"))
+end_date = st.date_input("End Date", value=pd.to_datetime("2023-12-31"))
 
-# Toggle for Capital Constraint
-capital_constraint = st.checkbox("Enable Capital Constraint (Only 1 Trade at a Time)", value=True)
+direction = st.radio("Select Direction:", ("long", "short"))
+volume_multiplier = float(st.text_input("Volume Multiplier:", value="2"))
+min_daily_return = float(st.text_input("Minimum Daily Return (%):", value="2.0")) / 100
+holding_period = int(st.text_input("Holding Period (Days):", value="10"))
+trailing_stop_loss = float(st.text_input("Trailing Stop Loss (%):", value="0.0"))
+wait_period = int(st.text_input("Wait Period (Days):", value="0"))
+capital_constraint = st.checkbox("Apply Capital Constraint", value=True)
 
-# Analyze stocks
-if st.button("Analyze Strategy"):
-    buy_signals = []
-    for stock in stocks.split(","):
-        stock = stock.strip()
-        try:
-            stock_data = fetch_stock_data(stock, start_date.strftime("%Y-%m-%d"), end_date.strftime("%Y-%m-%d"))
+if st.button("Run Strategy"):
+    try:
+        data = yf.download(ticker, start=start_date, end=end_date,group_by="ticker")
 
-            # Choose strategy based on the toggle
-            if capital_constraint:
-                st.write(f"Running strategy with capital constraint for {stock}...")
-                metrics = backtest_breakout_strategy_with_capital_constraint(
-                    stock_data,
-                    volume_multiplier,
-                    min_daily_return,
-                    holding_period,
-                    trailing_stop_loss,
-                    wait_period
-                )
-            else:
-                st.write(f"Running strategy without capital constraint for {stock}...")
-                metrics = backtest_breakout_strategy_without_constraint(
-                    stock_data,
-                    volume_multiplier,
-                    min_daily_return,
-                    holding_period,
-                    trailing_stop_loss,
-                    wait_period
-                )
+        if data.empty:
+            st.error("No data found for the specified ticker and date range.")
+        else:
+            results = backtest_breakout_strategy(
+                data,
+                direction=direction,
+                volume_multiplier=volume_multiplier,
+                min_daily_return=min_daily_return,
+                holding_period=holding_period,
+                trailing_stop_loss=trailing_stop_loss,
+                wait_period=wait_period,
+                capital_constraint=capital_constraint
+            )
 
-            trades_df = pd.DataFrame(metrics['Trades'])
-            st.write(f"Trades for {stock}:")
+            st.subheader("Trades")
+            trades_df = pd.DataFrame(results['Trades'])
             st.dataframe(trades_df)
 
-            # Display metrics
-            st.write(f"Performance Metrics for {stock}:")
-            st.write(f"- **Portfolio Value**: {metrics['Portfolio Value']:.2f}")
-            st.write(f"- **Annualized Return**: {metrics['Annualized Return']:.2f}%")
-            st.write(f"- **Max Drawdown**: {metrics['Max Drawdown (%)']:.2f}%")
-            st.write(f"- **Calmar Ratio**: {metrics['Calmar Ratio']:.2f}")
+            csv = trades_df.to_csv(index=False).encode('utf-8')
+            st.download_button(
+                    label="Download Trades as CSV",
+                    data=csv,
+                    file_name="trades.csv",
+                    mime="text/csv"
+            )
 
-            # Downloadable CSV
-            csv = trades_df.to_csv(index=False)
-            st.download_button(label=f"Download {stock} Trades CSV", data=csv, file_name=f"{stock}_trades.csv")
-        except Exception as e:
-            st.error(f"Error analyzing {stock}: {e}")
+            st.subheader("Performance Metrics")
+            st.write(f"**Portfolio Value:** {results['Portfolio Value']:.2f}")
+            st.write(f"**Annualized Return:** {results['Annualized Return']:.2f}%")
+            st.write(f"**Max Drawdown:** {results['Max Drawdown (%)']:.2f}%")
+            st.write(f"**Calmar Ratio:** {results['Calmar Ratio']:.2f}")
+    except Exception as e:
+        st.error(f"An error occurred: {e}")
+
+
+
